@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.env
+.venv
+*.env
+*.venv
+
+# Streamlit & cache
+.streamlit/
+*.toml
+*.log
+
+# Test & coverage
+.coverage
+htmlcov/
+.cache/
+*.cover
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Jupyter/IPython
+.ipynb_checkpoints/
+
+# Misc
+.DS_Store
+*.sqlite
+*.db
+
