@@ -1,116 +1,130 @@
-# SMC\_BOT - README DEV
+📘 Projeto: smc_bot
 
-## 🔢 Visão Geral
+Propósito: Automatizar operações financeiras com base em análise técnica do tipo Smart Money Concepts (SMC), organizando os módulos em diferentes níveis de complexidade para operação autônoma.
 
-Este projeto implementa um sistema automatizado de detecção de padrões baseado no Smart Money Concepts (SMC) e ICT (Inner Circle Trader), com foco em aplicações para Ações, Forex, Criptomoedas e Futuros. Inclui um motor de backtest, detecção de estrutura de mercado e uma GUI via `streamlit`.
-
-> Ambiente validado no Windows via PowerShell e Android (Termux), com sincronização via GitHub.
 
 ---
 
-## 🔹 Módulos Implementados
+📁 Estrutura do Projeto
 
-### Nível Básico - `core/patterns.py`
+smc_bot/
+├── backtest/               # Engine de backtest e simulação
+├── core/                   # Algoritmos principais de detecção de padrões SMC
+├── data/                   # Acesso a dados, cache e provedores
+├── gui/                    # Interface do usuário
+├── tests/                  # Testes automatizados com pytest
+├── trade/                  # Módulo de execução de trades (placeholder)
+├── main.py                 # Script de entrada principal
+├── config.py               # Parâmetros globais
+├── requirements.txt        # Dependências para produção
+├── pyproject.toml          # Metadados do projeto (build via setuptools)
+├── README_DEV.md           # Este arquivo
 
-* `detect_bos(df)` - Break of Structure
-* `detect_order_blocks(df)`
-* `detect_fvg(df)` - Fair Value Gap
-* `detect_liquidity_zones(df)` - zonas de liquidez baseadas em repetções
-* `detect_liquidity_sweep(df)` - rompimento agressivo das zonas acima
-
-### Nível Intermediário
-
-* `detect_choch(df)` - Change of Character
-* `detect_inducement(df)`
-* `detect_premium_discount(df)`
-* `detect_killzones(df, ts_col)`
-
-### Execução e Validação
-
-* `is_continuation_valid(df)`
-* `is_reversal_valid(df)`
 
 ---
 
-## 🔮 Estrutura de Testes - `tests/test_patterns_basic.py`
+✅ Etapas concluídas
 
-Todos os testes estão em conformidade com o PyTest e testam:
+[x] Estrutura do projeto padronizada
 
-* Casos positivos e negativos para `bos`, `order_blocks`, `fvg`
-* Precisão de zonas de liquidez com tolerância
-* Detecção de sweeps com critério de corpo do candle (>70%)
+[x] Detecção SMC Básico: BOS, CHoCH, FVG, Order Blocks, Liquidez
 
-> A maioria dos testes **passou**, exceto por:
+[x] pytest implementado com mocks e validações
 
-* `test_detect_fvg` - esperado um FVG inexistente (corrigir dados do teste)
-* `test_detect_order_blocks` - ordem esperada difere da real (ajustar assert)
-* `test_detect_liquidity_zones` - retornar apenas zonas com métrica robusta (precisa ajustar o critério)
-* `test_detect_liquidity_sweep` - falha por falta de sweep (corrigir dados do teste)
+[x] Integração com Codex verificada
 
----
+[x] Correção do bug assert is substituído por assert_frame_equal
 
-## 🔧 Ajustes Necessários - `core/data_provider.py`
 
-### Problema
-
-Os testes de cache e carregamento de `get_data()` com `fetch_yf` e `fetch_av` falham nos asserts por `df1 is df2`.
-
-### Solução
-
-Substituir:
-
-```python
-assert out is df_dummy
-```
-
-por:
-
-```python
-pd.testing.assert_frame_equal(out, df_dummy)
-```
-
-E replicar nas demais chamadas.
 
 ---
 
-## 🚀 Orientação ao Codex
+⚠️ O que precisa ser feito
 
-Este repositório é um sistema de detecção de padrões de preço baseados no Smart Money Concepts. As etapas de detecção devem ser evoluídas seguindo a hierarquia:
+🧪 Ajustes de testes (nível básico)
 
-* **Nível Básico:** estrutura de mercado (BOS, CHoCH), gaps, blocks, liquidez.
-* **Nível Intermediário:** inducements, zonas premium/discount, armadilhas.
-* **Nível Avançado:** breaker blocks, mitigação, SMT, confluências.
+test_detect_order_blocks()
 
-🔗 O Codex pode ser usado para:
+Corrigir esperados com base no real comportamento (possível confusão entre vela e pullback)
 
-* Refatorar os testes PyTest
-* Validar estratégias completas com pandas
-* Evoluir os padrões intermediários
-* Criar scripts de exportação/análise
 
-> Utilize os arquivos `patterns.py`, `test_patterns_basic.py`, `data_provider.py` e `gui/smc_gui.py` como base principal de edição.
+test_detect_fvg()
+
+Verificação de gaps realistas com candlesticks anteriores
+
+
+test_detect_liquidity_zones()
+
+Usar np.allclose para comparar floats
+
+Usar tolerance e min_touches
+
+
+test_detect_liquidity_sweep()
+
+Ajustar os índices com base na lógica de body_ratio e confirmação
+
+
+
+⚙️ Refatorar data_provider
+
+Garantir que o mock de fetch_yf e fetch_av não seja comparado por identidade (is) e sim por equals()
+
+
 
 ---
 
-## 📊 Roadmap
+💡 Orientação ao agente Codex
 
-| Etapa                     | Status      | Responsável  |
-| ------------------------- | ----------- | ------------ |
-| Detecção de BOS e CHoCH   | ✅ Feito     | Chat + User  |
-| Order Blocks + FVG        | ✅ Feito     | Chat + User  |
-| Liquidez (zona + sweep)   | ✅ Testado   | User         |
-| Ajustes nos asserts       | ⚠️ Pendente | User         |
-| Padronização `config.py`  | ✅ Feito     | Chat         |
-| Refatorar GUI (streamlit) | ⚠️ Parcial  | Chat + User  |
-| Modularização Avançada    | ⏳ Em breve  | Codex + Chat |
+1. Executar os testes com pytest tests/ a cada commit.
+
+
+2. Corrigir os testes que ainda falham usando pytest -v para detalhes.
+
+
+3. Dar prioridade para deixar o nível básico 100% verde antes de seguir.
+
+
+4. Em seguida, iniciar o nível intermediário (inducement, premium_discount, killzones).
+
+
+5. Qualquer alteração em patterns.py deve manter compatibilidade com os testes.
+
+
+
 
 ---
 
-Para execução local:
+📦 Dependências
 
-```bash
-git pull
-python -m pytest tests -v
-streamlit run gui/smc_gui.py
-```
+Estão listadas em requirements.txt, incluindo:
+
+pandas, numpy, pytest
+
+yfinance, alpha_vantage, streamlit
+
+
+Para instalar:
+
+pip install -r requirements.txt
+
+
+---
+
+🤝 Contribuição
+
+O projeto aceita modificações tanto pelo desktop (Windows + Git) quanto por celular (Termux + SSH + Git).
+
+Commits devem seguir padrões semânticos (feat:, fix:, docs:).
+
+
+
+---
+
+> Documento gerado automaticamente para facilitar a transição entre o agente Codex e desenvolvedor humano.
+
+
+
+🧠 Próxima meta: nivelar e validar todos os testes do nível básico antes de subir para intermediário.
+
 
