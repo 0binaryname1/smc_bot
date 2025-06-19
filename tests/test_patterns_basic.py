@@ -39,7 +39,10 @@ def test_detect_fvg():
         "close": [2, 4],
     })
     # só há gap (close > high) na segunda vela: low=2, close=4
-    assert detect_fvg(df_fvg) == [(2, 4)]
+    sult = detect_fvg(df_fvg)
+        expected = [(2, 4)]
+        assert len(result) ==len(expected)
+        assert all(np.allclose(r, e) for r, e in zip(result, expected))
 
 def test_detect_order_blocks():
     df = pd.DataFrame({

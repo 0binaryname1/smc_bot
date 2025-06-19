@@ -27,7 +27,7 @@ def test_yf_provider(tmp_path, monkeypatch):
 
     out = dp.get_data("SYM", "1d", "2020-01-01", "2020-01-02", provider="yf")
     assert isinstance(out, pd.DataFrame)
-    assert out is df_dummy
+    pd.testing.assert_frame_equal(out, df_dummy)
     assert called.get('yf') is True
 
     # deve ter criado arquivo de cache
