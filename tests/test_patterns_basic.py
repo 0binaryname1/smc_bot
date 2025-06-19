@@ -46,14 +46,18 @@ def test_detect_fvg():
 
 def test_detect_order_blocks():
     df = pd.DataFrame({
-        "open":  [1,   2,   1,   2],
-        "high":  [2,   3,   2,   4],
-        "low":   [0.5, 1.5, 0.8, 1.2],
-        "close": [2,   1.8, 1.9, 1.5],
+        "open": [1, 2, 1, 2],
+        "high": [2, 3, 2, 4],
+        "low": [0.5, 1.5, 0.8, 1.2],
+        "close": [2, 1.8, 1.9, 1.5],
     })
     # esperamos os "order blocks" na primeira e na última vela
-    blocks = detect_order_blocks(df)
-    assert blocks == [(0.5, 2), (1.2, 4)]
+    expected = [(0.5, 2), (1.2, 4)]
+    result = detect_order_blocks(df)
+
+    assert len(result) == len(expected)
+    for r, e in zip(result, expected):
+        assert np.allclose(r, e), f"Mismatch: got {r}, expected {e}"
 
 def test_detect_liquidity_zones():
     df = pd.DataFrame({
