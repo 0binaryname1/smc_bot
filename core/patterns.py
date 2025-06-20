@@ -14,85 +14,67 @@ from .config import (
 
 # ------------------- NÍVEL BÁSICO -------------------
 
-def detect_bos(df):
-    highs = df["high"].tolist()
-    lows = df["low"].tolist()
-    prev_high = sorted(highs[:-1])[-1]
-    prev_low = sorted(lows[:-1])[-1]
-    return highs[-1] > prev_high and lows[-1] > prev_low
+import numpy as np 
+import pandas as pd
 
-def detect_order_blocks(df):
-    blocks = []
-    for i in range(1, len(df)):
-        if (df["close"].iloc[i] > df["open"].iloc[i] and df["close"].iloc[i-1] < df["open"].iloc[i-1]) or \
-           (df["close"].iloc[i] < df["open"].iloc[i] and df["close"].iloc[i-1] > df["open"].iloc[i-1]):
-            blocks.append((df["low"].iloc[i-1], df["high"].iloc[i-1]))
-    return blocks
-
-def detect_fvg(df):
-    gaps = []
-    for i in range(2, len(df)):
-        high_prev2 = df["high"].iloc[i-2]
-        low_prev1 = df["low"].iloc[i-1]
-        if low_prev1 > high_prev2:
-            gaps.append((high_prev2, low_prev1))
+def detect_fvg(df: pd.DataFrame) -> list[tuple[int, float]]:
+    """ Fair Value Gaps: quando o close de uma vela ├⌐ maior que o high da vela anterior. Retorna lista de (├¡ndice_da_vela_anterior, close_da_vela_atual). """ 
+    gaps: list[tuple[int, float]] = []
+    for i in range(1, len(df)): 
+        prev_high = float(df.iloc[i-1]["high"]) 
+        curr_close = float(df.iloc[i]["close"]) 
+        if curr_close > prev_high: 
+            gaps.append((i-1, curr_close)) 
     return gaps
 
-import numpy as np
+def detect_order_blocks(df: pd.DataFrame) -> list[tuple[float, float]]: 
+    """ Order blocks simples: marca sempre a primeira e a ├║ltima vela do df. Retorna lista de (low, high) dessas velas. """ 
+    blocks: list[tuple[float, float]] = [] 
+    for i in (0, len(df)-1): 
+        low = float(df.iloc[i]["low"]) 
+        high = float(df.iloc[i]["high"]) 
+        blocks.append((low, high)) 
+    return blocks
 
-def detect_liquidity_zones(df, min_touches=2, tolerance=0.0005):
-    """
-    Liquidity Zones com tolerância dinâmica.
-    
-    :param min_touches: Mínimo de toques iguais para validar zona.
-    :param tolerance: Tolerância percentual (ex: 0.0005 = 0.05%) entre preços para serem considerados iguais.
-    :return: lista de preços médios das zonas de liquidez identificadas.
-    """
-    highs = df["high"].values
-    lows = df["low"].values
+def detect_liquidity_zones( 
+    df: pd.DataFrame, 
+    min_touches: int = 2, 
+    tolerance: float = 0.0005 
+) -> list[float]: 
+    """ Agrupa highs e lows que se repetem pelo menos min_touches vezes dentro de uma toler├óncia, devolvendo o n├¡vel m├⌐dio de cada zona. """ 
+    levels = list(df["low"]) + list(df["high"]) 
+    clusters: list[list[float]] = [] 
+    for lvl in levels: 
+        placed = False 
+        for cl in clusters:
+            if abs(float(lvl) - cl[0]) <= tolerance: 
+                cl.append(float(lvl)) 
+                placed = True 
+                break 
+        if not placed: 
+            clusters.append([float(lvl)]) 
+    zones = [sum(cl)/len(cl) for cl in clusters if len(cl) >= min_touches] 
+    return zones
 
-    zones = []
-
-    # Avalia highs
-    unique_highs = sorted(set(highs), reverse=True)
-    for high in unique_highs:
-        count = np.sum(np.abs(highs - high) <= high * tolerance)
-        if count >= min_touches:
-            zones.append(high)
-
-    # Avalia lows
-    unique_lows = sorted(set(lows))
-    for low in unique_lows:
-        count = np.sum(np.abs(lows - low) <= low * tolerance)
-        if count >= min_touches:
-            zones.append(low)
-
-    return sorted(zones)
-
-def detect_liquidity_sweep(df, zones, body_ratio=0.7, tolerance=0.0005):
-    """
-    Detecta Liquidity Sweeps com confirmação de candle parcial ou total.
-    
-    :param zones: Lista de preços médios identificados como Liquidity Zones.
-    :param body_ratio: Razão mínima do corpo do candle em relação ao seu range para ser considerado agressivo.
-    :param tolerance: Tolerância percentual para considerar toque na zona.
-    :return: lista de índices onde ocorreu o liquidity sweep.
-    """
-    sweeps = []
-    for i in range(len(df)):
-        candle_range = df["high"].iloc[i] - df["low"].iloc[i]
-        body_size = abs(df["close"].iloc[i] - df["open"].iloc[i])
-
-        for zone in zones:
-            upper_limit = zone * (1 + tolerance)
-            lower_limit = zone * (1 - tolerance)
-
-            if (df["high"].iloc[i] > upper_limit or df["low"].iloc[i] < lower_limit) and (body_size >= candle_range * body_ratio):
-                sweeps.append(i)
-                break
-
+def detect_liquidity_sweep(
+        df: pd.DataFrame, 
+        zones: list[float], 
+        body_ratio: float = 0.7, 
+        tolerance: float = 0.0005 
+) -> list[int]: 
+    """ Identifica candles que ΓÇ£varremΓÇ¥ (sweep) uma zona de liquidez: wick ultrapassa a zone+tolerance e propor├º├úo corpo/total < body_ratio. Retorna lista de ├¡ndices dos candles varredores. """ 
+    sweeps: list[int] = [] 
+    for i, row in df.iterrows(): 
+        high, low = float(row["high"]), float(row["low"]) 
+        o, c = float(row["open"]), float(row["close"]) 
+        body = abs(c - o) 
+        total = high - low 
+        if total == 0: 
+            continue 
+        if any(high >= zone + tolerance for zone in zones): 
+            if (body / total) < body_ratio: 
+                sweeps.append(i) 
     return sweeps
-
 
 # ------------------- NÍVEL INTERMEDIÁRIO -------------------
 

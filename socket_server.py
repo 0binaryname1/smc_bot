@@ -1,6 +1,6 @@
 import socket
 
-HOST = '0.0.0.0'  # Escuta em todas as interfaces
+HOST = '192.168.0.105'  # Escuta em todas as interfaces
 PORT = 5555       # Porta de comunicação
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
