@@ -1,79 +1,200 @@
 # core/patterns.py
 
 """
-Módulos SMC - patterns.py
-Detectores de padrões SMC divididos por nível
+Smart Money Concepts (SMC) pattern detection functions.
+This module provides basic SMC pattern detection such as Break of Structure (BOS),
+Change of Character (CHOCH), Fair Value Gaps (FVG), Order Blocks, liquidity zones, and liquidity sweeps.
 """
 
-from .config import (
-    LIQUIDITY_MIN_TOUCHES,
-    LIQUIDITY_TOLERANCE,
-    SWEEP_BODY_RATIO,
-    SWEEP_PARTIAL_MARGIN,
-)
-
-# ------------------- NÍVEL BÁSICO -------------------
-
-import numpy as np 
+import numpy as np
 import pandas as pd
 
-def detect_fvg(df: pd.DataFrame) -> list[tuple[int, float]]:
-    """ Fair Value Gaps: quando o close de uma vela ├⌐ maior que o high da vela anterior. Retorna lista de (├¡ndice_da_vela_anterior, close_da_vela_atual). """ 
-    gaps: list[tuple[int, float]] = []
-    for i in range(1, len(df)): 
-        prev_high = float(df.iloc[i-1]["high"]) 
-        curr_close = float(df.iloc[i]["close"]) 
-        if curr_close > prev_high: 
-            gaps.append((i-1, curr_close)) 
+def detect_bos(df: pd.DataFrame) -> bool:
+    """
+    Detects a Break of Structure (BOS) in the provided price data.
+    A BOS occurs when price breaks the previous significant high (for bullish BOS) 
+    or the previous significant low (for bearish BOS).
+    
+    Basic implementation: returns True if the last candle's high is higher than any prior high (bullish BOS)
+    or the last candle's low is lower than any prior low (bearish BOS), indicating a structural break. 
+    Otherwise returns False.
+    """
+    if df is None or df.empty:
+        return False
+    highs = df['high']
+    lows = df['low']
+    last_high = highs.iloc[-1]
+    last_low = lows.iloc[-1]
+    # Check if last high breaks above all previous highs (bullish BOS)
+    if last_high > highs[:-1].max():
+        return True
+    # Check if last low breaks below all previous lows (bearish BOS)
+    if last_low < lows[:-1].min():
+        return True
+    return False
+
+def detect_choch(df: pd.DataFrame) -> bool:
+    """
+    Detects a Change of Character (CHOCH) in the provided price data.
+    A CHOCH is typically identified when the market, which had been trending in one direction,
+    breaks structure in the opposite direction, indicating a potential trend reversal.
+    
+    Basic implementation: returns True if both a bullish and bearish break of structure 
+    are detected in the price series (one followed by the other). 
+    For example, if a previous bullish BOS occurred and then a bearish BOS occurs (or vice versa),
+    that sequence is considered a CHOCH. Otherwise returns False.
+    """
+    if df is None or df.empty:
+        return False
+    highs = df['high']
+    lows = df['low']
+    # find all break points
+    bos_up = []   # indices where bullish BOS occurs
+    bos_down = [] # indices where bearish BOS occurs
+    current_max = highs.iloc[0]
+    current_min = lows.iloc[0]
+    for i in range(1, len(df)):
+        if highs.iloc[i] > current_max:
+            bos_up.append(i)
+            current_max = highs.iloc[i]
+        if lows.iloc[i] < current_min:
+            bos_down.append(i)
+            current_min = lows.iloc[i]
+    # A CHOCH occurs if there is at least one bullish BOS followed by a bearish BOS or vice versa.
+    if bos_up and bos_down:
+        # Determine the first occurrence of each type
+        first_up = bos_up[0]
+        first_down = bos_down[0]
+        # If either type of BOS occurs and then the other type occurs later in the sequence, that's a CHOCH
+        if first_up < first_down or first_down < first_up:
+            return True
+    return False
+
+def detect_fvg(df: pd.DataFrame) -> list:
+    """
+    Detects Fair Value Gaps (FVG) in the provided price data.
+    A fair value gap is a price range between two consecutive candles where the second candle does not overlap 
+    the first candle's range, leaving a 'gap' in price action.
+    
+    Returns a list of tuples for each detected gap. Each tuple is (gap_lower_price, gap_upper_price).
+    """
+    gaps = []
+    if df is None or len(df) < 2:
+        return gaps
+    for i in range(len(df) - 1):
+        close_price = df['close'].iloc[i]
+        next_low = df['low'].iloc[i+1]
+        next_high = df['high'].iloc[i+1]
+        # Upward gap: previous close < next low
+        if close_price < next_low:
+            gaps.append((close_price, next_low))
+        # Downward gap: previous close > next high
+        elif close_price > next_high:
+            gaps.append((next_high, close_price))
     return gaps
 
-def detect_order_blocks(df: pd.DataFrame) -> list[tuple[float, float]]: 
-    """ Order blocks simples: marca sempre a primeira e a ├║ltima vela do df. Retorna lista de (low, high) dessas velas. """ 
-    blocks: list[tuple[float, float]] = [] 
-    for i in (0, len(df)-1): 
-        low = float(df.iloc[i]["low"]) 
-        high = float(df.iloc[i]["high"]) 
-        blocks.append((low, high)) 
-    return blocks
+def detect_order_blocks(df: pd.DataFrame) -> list:
+    """
+    Detects Order Blocks in the provided price data.
+    An Order Block is typically the last opposing candle (bullish or bearish) before a significant move (BOS).
+    For simplicity, this function identifies potential order blocks by finding large candles preceding a break of structure.
+    
+    Returns a list of indices of candles that could be order blocks.
+    """
+    order_blocks = []
+    if df is None or len(df) < 3:
+        return order_blocks
+    highs = df['high']
+    lows = df['low']
+    closes = df['close']
+    opens = df['open']
+    # Identify break of structure points (both up and down)
+    current_max = highs.iloc[0]
+    current_min = lows.iloc[0]
+    bos_indices = []
+    bos_directions = []  # 'up' or 'down'
+    for i in range(1, len(df)):
+        if highs.iloc[i] > current_max:
+            bos_indices.append(i)
+            bos_directions.append('up')
+            current_max = highs.iloc[i]
+        if lows.iloc[i] < current_min:
+            bos_indices.append(i)
+            bos_directions.append('down')
+            current_min = lows.iloc[i]
+    # Determine order blocks: if BOS up, previous candle if bearish; if BOS down, previous candle if bullish
+    for idx, direction in zip(bos_indices, bos_directions):
+        prev_idx = idx - 1
+        if prev_idx >= 0:
+            if direction == 'up':
+                # bullish BOS -> previous bearish candle might be an order block
+                if closes.iloc[prev_idx] < opens.iloc[prev_idx]:
+                    order_blocks.append(prev_idx)
+            elif direction == 'down':
+                # bearish BOS -> previous bullish candle might be an order block
+                if closes.iloc[prev_idx] > opens.iloc[prev_idx]:
+                    order_blocks.append(prev_idx)
+    # Remove duplicates and sort
+    order_blocks = sorted(set(order_blocks))
+    return order_blocks
 
-def detect_liquidity_zones( 
-    df: pd.DataFrame, 
-    min_touches: int = 2, 
-    tolerance: float = 0.0005 
-) -> list[float]: 
-    """ Agrupa highs e lows que se repetem pelo menos min_touches vezes dentro de uma toler├óncia, devolvendo o n├¡vel m├⌐dio de cada zona. """ 
-    levels = list(df["low"]) + list(df["high"]) 
-    clusters: list[list[float]] = [] 
-    for lvl in levels: 
-        placed = False 
-        for cl in clusters:
-            if abs(float(lvl) - cl[0]) <= tolerance: 
-                cl.append(float(lvl)) 
-                placed = True 
-                break 
-        if not placed: 
-            clusters.append([float(lvl)]) 
-    zones = [sum(cl)/len(cl) for cl in clusters if len(cl) >= min_touches] 
+def detect_liquidity_zones(df: pd.DataFrame, tolerance: float = 1e-8) -> list:
+    """
+    Detects liquidity zones (areas of equal highs or equal lows) in the provided price data.
+    These zones indicate potential liquidity (stop orders) resting above equal highs or below equal lows.
+    
+    Basic implementation: returns a list of price levels that appear at least twice as highs or at least twice as lows.
+    Uses a tolerance to account for floating point differences.
+    """
+    zones = []
+    if df is None or df.empty:
+        return zones
+    highs = df['high']
+    lows = df['low']
+    n = len(df)
+    for i in range(n):
+        for j in range(i+1, n):
+            if abs(highs.iloc[i] - highs.iloc[j]) <= tolerance:
+                zones.append(highs.iloc[i])
+            if abs(lows.iloc[i] - lows.iloc[j]) <= tolerance:
+                zones.append(lows.iloc[i])
+    # Remove duplicates and sort the levels
+    zones = sorted(set(zones))
     return zones
 
-def detect_liquidity_sweep(
-        df: pd.DataFrame, 
-        zones: list[float], 
-        body_ratio: float = 0.7, 
-        tolerance: float = 0.0005 
-) -> list[int]: 
-    """ Identifica candles que ΓÇ£varremΓÇ¥ (sweep) uma zona de liquidez: wick ultrapassa a zone+tolerance e propor├º├úo corpo/total < body_ratio. Retorna lista de ├¡ndices dos candles varredores. """ 
-    sweeps: list[int] = [] 
-    for i, row in df.iterrows(): 
-        high, low = float(row["high"]), float(row["low"]) 
-        o, c = float(row["open"]), float(row["close"]) 
-        body = abs(c - o) 
-        total = high - low 
-        if total == 0: 
-            continue 
-        if any(high >= zone + tolerance for zone in zones): 
-            if (body / total) < body_ratio: 
-                sweeps.append(i) 
+def detect_liquidity_sweep(df: pd.DataFrame) -> list:
+    """
+    Detects liquidity sweeps in the provided price data.
+    A liquidity sweep occurs when price moves beyond a previous swing high (or low), 
+    taking out liquidity, but then reverses (closes back below the broken high or above the broken low).
+    
+    Basic implementation: returns a list of price levels that were swept.
+    For each candle that makes a new high above all previous highs but closes below that previous high level, 
+    the previous high level is recorded as a swept liquidity level.
+    Similarly for new lows that close above the previous low level.
+    """
+    sweeps = []
+    if df is None or len(df) < 2:
+        return sweeps
+    highs = df['high']
+    lows = df['low']
+    closes = df['close']
+    current_max = highs.iloc[0]
+    current_min = lows.iloc[0]
+    for i in range(1, len(df)):
+        prev_max = current_max
+        prev_min = current_min
+        # Update current max/min with current candle's values for next iteration
+        current_max = max(current_max, highs.iloc[i])
+        current_min = min(current_min, lows.iloc[i])
+        # Check for sweep of previous high
+        if highs.iloc[i] > prev_max and closes.iloc[i] < prev_max:
+            sweeps.append(prev_max)
+        # Check for sweep of previous low
+        if lows.iloc[i] < prev_min and closes.iloc[i] > prev_min:
+            sweeps.append(prev_min)
+    # Remove duplicates and sort
+    sweeps = sorted(set(sweeps))
     return sweeps
 
 # ------------------- NÍVEL INTERMEDIÁRIO -------------------
