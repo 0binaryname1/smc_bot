@@ -40,35 +40,15 @@ def detect_choch(df: pd.DataFrame) -> bool:
     breaks structure in the opposite direction, indicating a potential trend reversal.
     
     Basic implementation: returns True if both a bullish and bearish break of structure 
-    are detected in the price series (one followed by the other). 
-    For example, if a previous bullish BOS occurred and then a bearish BOS occurs (or vice versa),
-    that sequence is considered a CHOCH. Otherwise returns False.
+    are detected in the price series. 
     """
     if df is None or df.empty:
         return False
-    highs = df['high']
-    lows = df['low']
+    highs, lows = df['high'], df['low']
     # find all break points
-    bos_up = []   # indices where bullish BOS occurs
-    bos_down = [] # indices where bearish BOS occurs
-    current_max = highs.iloc[0]
-    current_min = lows.iloc[0]
-    for i in range(1, len(df)):
-        if highs.iloc[i] > current_max:
-            bos_up.append(i)
-            current_max = highs.iloc[i]
-        if lows.iloc[i] < current_min:
-            bos_down.append(i)
-            current_min = lows.iloc[i]
-    # A CHOCH occurs if there is at least one bullish BOS followed by a bearish BOS or vice versa.
-    if bos_up and bos_down:
-        # Determine the first occurrence of each type
-        first_up = bos_up[0]
-        first_down = bos_down[0]
-        # If either type of BOS occurs and then the other type occurs later in the sequence, that's a CHOCH
-        if first_up < first_down or first_down < first_up:
-            return True
-    return False
+    ups = [i for i in range(1, len(df) if highs.iloc[i] > highs.iloc[:i].max()]
+    downs = [i for i in range(1, len(df)) if lows.iloc[i] < lows.iloc[:i].min()]
+           return bool(ups and downs)   
 
 def detect_fvg(df: pd.DataFrame) -> list:
     """
@@ -81,16 +61,13 @@ def detect_fvg(df: pd.DataFrame) -> list:
     gaps = []
     if df is None or len(df) < 2:
         return gaps
-    for i in range(len(df) - 1):
-        close_price = df['close'].iloc[i]
-        next_low = df['low'].iloc[i+1]
-        next_high = df['high'].iloc[i+1]
-        # Upward gap: previous close < next low
-        if close_price < next_low:
-            gaps.append((close_price, next_low))
-        # Downward gap: previous close > next high
-        elif close_price > next_high:
-            gaps.append((next_high, close_price))
+    for i in range(1, len(df)):
+           prev_h, prev_1 = df['high'].iat[i-1], df['low'].iat[i-1]
+           curr_c = df['close'].iat[i]
+           if curr_c > prev_h: 
+                gaps.append((i-1, curr_c))
+           eliff curr_c < prev_1:
+               gaps.append(i-1, curr_c))
     return gaps
 
 def detect_order_blocks(df: pd.DataFrame) -> list:
@@ -138,7 +115,7 @@ def detect_order_blocks(df: pd.DataFrame) -> list:
     order_blocks = sorted(set(order_blocks))
     return order_blocks
 
-def detect_liquidity_zones(df: pd.DataFrame, tolerance: float = 1e-8) -> list:
+def detect_liquidity_zones(df, min_touches=2, tolerance=1e-8):
     """
     Detects liquidity zones (areas of equal highs or equal lows) in the provided price data.
     These zones indicate potential liquidity (stop orders) resting above equal highs or below equal lows.
@@ -146,23 +123,21 @@ def detect_liquidity_zones(df: pd.DataFrame, tolerance: float = 1e-8) -> list:
     Basic implementation: returns a list of price levels that appear at least twice as highs or at least twice as lows.
     Uses a tolerance to account for floating point differences.
     """
-    zones = []
     if df is None or df.empty:
-        return zones
-    highs = df['high']
-    lows = df['low']
-    n = len(df)
-    for i in range(n):
-        for j in range(i+1, n):
-            if abs(highs.iloc[i] - highs.iloc[j]) <= tolerance:
-                zones.append(highs.iloc[i])
-            if abs(lows.iloc[i] - lows.iloc[j]) <= tolerance:
-                zones.append(lows.iloc[i])
-    # Remove duplicates and sort the levels
-    zones = sorted(set(zones))
-    return zones
+        return []
+    prices = pd.concat([df['high'], df['low']]).values
+    zones = []
+    used = set()
+    for p in prices:
+        if any(abs(p-z) <= tolerance for z in used):
+            continue
+        count = sum(abs(prices - p) <= tolerance)
+        if count >= min_touches:
+            zones.append(float(p))
+            used.add(p)
+    return sorted(zones)
 
-def detect_liquidity_sweep(df: pd.DataFrame) -> list:
+def detect_liquidity_sweep(df, zones, boddy_ratio=0.7, tolerance=1e-8):
     """
     Detects liquidity sweeps in the provided price data.
     A liquidity sweep occurs when price moves beyond a previous swing high (or low), 
@@ -173,29 +148,19 @@ def detect_liquidity_sweep(df: pd.DataFrame) -> list:
     the previous high level is recorded as a swept liquidity level.
     Similarly for new lows that close above the previous low level.
     """
-    sweeps = []
+    sweeps = set()
     if df is None or len(df) < 2:
-        return sweeps
-    highs = df['high']
-    lows = df['low']
-    closes = df['close']
-    current_max = highs.iloc[0]
-    current_min = lows.iloc[0]
+        return []
+    o, h, l, c = df['open'], df['high'], df['low'], df['close']
     for i in range(1, len(df)):
-        prev_max = current_max
-        prev_min = current_min
-        # Update current max/min with current candle's values for next iteration
-        current_max = max(current_max, highs.iloc[i])
-        current_min = min(current_min, lows.iloc[i])
-        # Check for sweep of previous high
-        if highs.iloc[i] > prev_max and closes.iloc[i] < prev_max:
-            sweeps.append(prev_max)
-        # Check for sweep of previous low
-        if lows.iloc[i] < prev_min and closes.iloc[i] > prev_min:
-            sweeps.append(prev_min)
-    # Remove duplicates and sort
-    sweeps = sorted(set(sweeps))
-    return sweeps
+        body = abs(o.iat[i] - c.iat[i])
+        rng = h.iat[i] - l.iat[i]
+        if rng <= 0:
+            continue
+        for z in zones:
+            if h.iat[i] > z + tolerance and c.iat[i] < z - tolerance:
+                sweeps.add(i)
+    return sorted(sweeps)
 
 # ------------------- NÍVEL INTERMEDIÁRIO -------------------
 
