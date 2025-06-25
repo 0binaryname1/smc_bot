@@ -10,180 +10,172 @@ import numpy as np
 import pandas as pd
 
 def detect_bos(df: pd.DataFrame) -> bool:
-    """
-    Detects a Break of Structure (BOS) in the provided price data.
-    A BOS occurs when price breaks the previous significant high (for bullish BOS) 
-    or the previous significant low (for bearish BOS).
-    
-    Basic implementation: returns True if the last candle's high is higher than any prior high (bullish BOS)
-    or the last candle's low is lower than any prior low (bearish BOS), indicating a structural break. 
-    Otherwise returns False.
-    """
-    if df is None or df.empty:
+    if df is None or len(df) < 2:
         return False
+
     highs = df['high']
-    lows = df['low']
-    last_high = highs.iloc[-1]
-    last_low = lows.iloc[-1]
-    # Check if last high breaks above all previous highs (bullish BOS)
-    if last_high > highs[:-1].max():
+    lows  = df['low']
+    closes= df['close']
+
+    # Identifica últimos swings relevantes
+    last_swing_high = highs.iloc[:-1].iloc[::-1].max()
+    last_swing_low  = lows .iloc[:-1].iloc[::-1].min()
+
+    # Candle de rompimento deve fechar além do swing
+    if closes.iat[-1] > last_swing_high:
         return True
-    # Check if last low breaks below all previous lows (bearish BOS)
-    if last_low < lows[:-1].min():
+    if closes.iat[-1] < last_swing_low:
         return True
     return False
 
-def detect_choch(df: pd.DataFrame) -> bool:
-    """
-    Detects a Change of Character (CHOCH) in the provided price data.
-    A CHOCH is typically identified when the market, which had been trending in one direction,
-    breaks structure in the opposite direction, indicating a potential trend reversal.
-    
-    Basic implementation: returns True if both a bullish and bearish break of structure 
-    are detected in the price series. 
-    """
-    if df is None or df.empty:
-        return False
-    highs, lows = df['high'], df['low']
-    # find all break points
-    ups = [i for i in range(1, len(df) if highs.iloc[i] > highs.iloc[:i].max()]
-    downs = [i for i in range(1, len(df)) if lows.iloc[i] < lows.iloc[:i].min()]
-           return bool(ups and downs)   
-
-def detect_fvg(df: pd.DataFrame) -> list:
-    """
-    Detects Fair Value Gaps (FVG) in the provided price data.
-    A fair value gap is a price range between two consecutive candles where the second candle does not overlap 
-    the first candle's range, leaving a 'gap' in price action.
-    
-    Returns a list of tuples for each detected gap. Each tuple is (gap_lower_price, gap_upper_price).
-    """
+def detect_fvg(df: pd.DataFrame) -> list[tuple[float, float]]:
     gaps = []
     if df is None or len(df) < 2:
         return gaps
+
+    highs = df['high']
+    lows  = df['low']
+
     for i in range(1, len(df)):
-           prev_h, prev_1 = df['high'].iat[i-1], df['low'].iat[i-1]
-           curr_c = df['close'].iat[i]
-           if curr_c > prev_h: 
-                gaps.append((i-1, curr_c))
-           eliff curr_c < prev_1:
-               gaps.append(i-1, curr_c))
+        prev_h = highs.iat[i-1]
+        prev_l = lows .iat[i-1]
+        curr_h = highs.iat[i]
+        curr_l = lows .iat[i]
+
+        # gap de alta: mínima do atual acima da máxima anterior
+        if curr_l > prev_h:
+            gaps.append((prev_h, curr_l))
+
+        # gap de baixa: máxima do atual abaixo da mínima anterior
+        elif curr_h < prev_l:
+            gaps.append((curr_h, prev_l))
+
     return gaps
 
-def detect_order_blocks(df: pd.DataFrame) -> list:
+def detect_order_blocks(df: pd.DataFrame, min_range: float = 0) -> list[dict]:
     """
-    Detects Order Blocks in the provided price data.
-    An Order Block is typically the last opposing candle (bullish or bearish) before a significant move (BOS).
-    For simplicity, this function identifies potential order blocks by finding large candles preceding a break of structure.
-    
-    Returns a list of indices of candles that could be order blocks.
+    Retorna lista de dicts: {"index":i, "type":"bullish"/"bearish", "zone":(low,high)}.
     """
-    order_blocks = []
-    if df is None or len(df) < 3:
-        return order_blocks
-    highs = df['high']
-    lows = df['low']
-    closes = df['close']
-    opens = df['open']
-    # Identify break of structure points (both up and down)
-    current_max = highs.iloc[0]
-    current_min = lows.iloc[0]
-    bos_indices = []
-    bos_directions = []  # 'up' or 'down'
-    for i in range(1, len(df)):
-        if highs.iloc[i] > current_max:
-            bos_indices.append(i)
-            bos_directions.append('up')
-            current_max = highs.iloc[i]
-        if lows.iloc[i] < current_min:
-            bos_indices.append(i)
-            bos_directions.append('down')
-            current_min = lows.iloc[i]
-    # Determine order blocks: if BOS up, previous candle if bearish; if BOS down, previous candle if bullish
-    for idx, direction in zip(bos_indices, bos_directions):
-        prev_idx = idx - 1
-        if prev_idx >= 0:
-            if direction == 'up':
-                # bullish BOS -> previous bearish candle might be an order block
-                if closes.iloc[prev_idx] < opens.iloc[prev_idx]:
-                    order_blocks.append(prev_idx)
-            elif direction == 'down':
-                # bearish BOS -> previous bullish candle might be an order block
-                if closes.iloc[prev_idx] > opens.iloc[prev_idx]:
-                    order_blocks.append(prev_idx)
-    # Remove duplicates and sort
-    order_blocks = sorted(set(order_blocks))
-    return order_blocks
+    obs = []
+    curr_max = df['high'].iat[0]
+    curr_min = df['low'] .iat[0]
 
-def detect_liquidity_zones(df, min_touches=2, tolerance=1e-8):
-    """
-    Detects liquidity zones (areas of equal highs or equal lows) in the provided price data.
-    These zones indicate potential liquidity (stop orders) resting above equal highs or below equal lows.
-    
-    Basic implementation: returns a list of price levels that appear at least twice as highs or at least twice as lows.
-    Uses a tolerance to account for floating point differences.
-    """
-    if df is None or df.empty:
-        return []
-    prices = pd.concat([df['high'], df['low']]).values
-    zones = []
-    used = set()
-    for p in prices:
-        if any(abs(p-z) <= tolerance for z in used):
-            continue
-        count = sum(abs(prices - p) <= tolerance)
-        if count >= min_touches:
-            zones.append(float(p))
-            used.add(p)
-    return sorted(zones)
-
-def detect_liquidity_sweep(df, zones, boddy_ratio=0.7, tolerance=1e-8):
-    """
-    Detects liquidity sweeps in the provided price data.
-    A liquidity sweep occurs when price moves beyond a previous swing high (or low), 
-    taking out liquidity, but then reverses (closes back below the broken high or above the broken low).
-    
-    Basic implementation: returns a list of price levels that were swept.
-    For each candle that makes a new high above all previous highs but closes below that previous high level, 
-    the previous high level is recorded as a swept liquidity level.
-    Similarly for new lows that close above the previous low level.
-    """
-    sweeps = set()
-    if df is None or len(df) < 2:
-        return []
-    o, h, l, c = df['open'], df['high'], df['low'], df['close']
     for i in range(1, len(df)):
-        body = abs(o.iat[i] - c.iat[i])
-        rng = h.iat[i] - l.iat[i]
-        if rng <= 0:
-            continue
+        h, l, o, c = df['high'].iat[i], df['low'].iat[i], df['open'].iat[i], df['close'].iat[i]
+        prev_h, prev_l, prev_o, prev_c = df['high'].iat[i-1], df['low'].iat[i-1], df['open'].iat[i-1], df['close'].iat[i-1]
+
+        # bullish BOS confirmado por fechamento
+        if c > curr_max and df['close'].iat[i] > curr_max:
+            # candle anterior devia ser bearish e ter range suficiente
+            if prev_c < prev_o and abs(prev_h - prev_l) >= min_range:
+                obs.append({"index":i-1, "type":"bullish", "zone":(prev_l, prev_h)})
+            curr_max = h
+
+        # bearish BOS
+        if c < curr_min and df['close'].iat[i] < curr_min:
+            if prev_c > prev_o and abs(prev_h - prev_l) >= min_range:
+                obs.append({"index":i-1, "type":"bearish", "zone":(prev_l, prev_h)})
+            curr_min = l
+
+    # remove duplicatas por índice
+    uniq = {o["index"]:o for o in obs}
+    return list(uniq.values())
+
+def detect_liquidity_zones(df: pd.DataFrame, min_touches: int = 2, tol: float = 1e-5) -> dict[float,int]:
+    """
+    Retorna dict {price: count} para each level tocado >= min_touches.
+    """
+    counts = {}
+    for price in list(df['high']) + list(df['low']):
+        # junta highs e lows
+        counts[price] = counts.get(price, 0) + 1
+
+    # agrupar por proximidade tol e filtrar
+    zones = {}
+    for price, cnt in counts.items():
+        # encontra key já existente próxima
+        found = next((z for z in zones if abs(z - price) <= tol), None)
+        if found:
+            zones[found] += cnt
+        else:
+            zones[price] = cnt
+
+    # só retorna as que tiveram toques suficientes
+    return {z:c for z,c in zones.items() if c >= min_touches}
+
+def detect_liquidity_sweep(df: pd.DataFrame, zones: list[float], body_ratio: float = 0.5, tol: float = 1e-5) -> list[dict]:
+    """
+    Para cada zona z, verifica se candle fura e fecha do outro lado com pavio.
+    Retorna list de {"index":i, "level":z, "direction":"up"/"down"}.
+    """
+    sweeps = []
+
+    highs = df['high']; lows = df['low']; closes = df['close']; opens = df['open']
+    for i in range(1, len(df)):
+        h, l, o, c = highs.iat[i], lows.iat[i], opens.iat[i], closes.iat[i]
+        rng  = h - l
+        body = abs(c - o)
+        if rng == 0: continue
+        if body / rng > body_ratio:
+            continue  # exige sombra grande
+
         for z in zones:
-            if h.iat[i] > z + tolerance and c.iat[i] < z - tolerance:
-                sweeps.add(i)
-    return sorted(sweeps)
+            # sweep buy‐side: fura acima z e fecha abaixo
+            if h > z + tol and c < z - tol:
+                sweeps.append({"index":i, "level":z, "direction":"up"})
+            # sweep sell‐side: fura abaixo z e fecha acima
+            if l < z - tol and c > z + tol:
+                sweeps.append({"index":i, "level":z, "direction":"down"})
+
+    # remover duplicatas por (i,z)
+    seen = set()
+    uniq = []
+    for s in sweeps:
+        key = (s["index"], s["level"])
+        if key not in seen:
+            seen.add(key)
+            uniq.append(s)
+    return uniq
 
 # ------------------- NÍVEL INTERMEDIÁRIO -------------------
 
-def detect_choch(df):
-    """Change of Character (CHoCH): primeiro rompimento contra tendência anterior."""
-    highs = df["high"].tolist()
-    lows  = df["low"].tolist()
-    # usa últimos 3 pivôs para definir CHoCH
-    if len(highs) < 4:
+def detect_choch(df: pd.DataFrame) -> bool:
+    if df is None or len(df) < 3:
         return False
-    # detecta fundo mais baixo em alta vigente ou topo mais alto em baixa vigente
-    return lows[-1] < lows[-2] and highs[-2] > highs[-3] or highs[-1] > highs[-2] and lows[-2] < lows[-3]
 
-def detect_inducement(df):
-    """Indução: rompimento falso de liquidity zone seguido de volta rápida."""
-    sweeps = detect_liquidity_sweep(df)
-    zones  = detect_liquidity_zones(df)
+    highs = df['high']
+    lows  = df['low']
+    closes= df['close']
+
+    # precisa de pelo menos 2 swings na direção original antes do CHOCH
+    # ex.: dois higher highs antes de um lower low, ou dois lower lows antes de um higher high
+    # aqui simplificamos contando pivôs:
+    highs_idx = [i for i in range(1, len(df)) if closes.iat[i] > highs.iloc[:i].max()]
+    lows_idx  = [i for i in range(1, len(df)) if closes.iat[i] < lows .iloc[:i].min()]
+    up = bool(highs_idx)   # já viu BOS up
+    dn = bool(lows_idx)    # já viu BOS down
+    return up and dn
+
+def detect_inducement(df: pd.DataFrame, zones: list[float]) -> list[dict]:
+    """
+    Inducement = sweep falso seguido de candle que volta para o mesmo lado de z.
+    Retorna list de {"sweep":sweep, "confirm_idx":i+1}.
+    """
+    sweeps = detect_liquidity_sweep(df, zones)
     inducements = []
-    for idx in sweeps:
-        # logo após sweep, fechar de volta dentro da zona
-        if idx+1 < len(df):
-            if df["low"].iloc[idx+1] >= min(zones, default=0) and df["high"].iloc[idx+1] <= max(zones, default=0):
-                inducements.append(idx)
+
+    for sw in sweeps:
+        idx, z, dir_ = sw["index"], sw["level"], sw["direction"]
+        nxt = idx + 1
+        if nxt < len(df):
+            c = df['close'].iat[nxt]
+            # se sweep up mas fechou acima de z novamente => indução de compras
+            if dir_ == "up" and c > z:
+                inducements.append({"sweep":sw, "confirm_idx":nxt})
+            # se sweep down mas fechou abaixo de z => indução de vendas
+            if dir_ == "down" and c < z:
+                inducements.append({"sweep":sw, "confirm_idx":nxt})
+
     return inducements
 
 def detect_premium_discount(df):
