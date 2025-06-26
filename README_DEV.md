@@ -23,72 +23,73 @@ smc_bot/
 
 ---
 
-✅ Etapas concluídas
+## 1. Visão Geral do Projeto
 
-[x] Estrutura do projeto padronizada
+- **Nome:** smc_bot
+- **Descrição:** Biblioteca Python para detecção de padrões Smart Money Concepts (SMC), obtenção de dados financeiros (Yahoo Finance, AlphaVantage), cache local, e testes automatizados.
+- **Principais Módulos:**
+  - `core/patterns.py`: funções para detecção de BOS, CHOCH, FVG, Order Blocks, Liquidity Zones, Liquidity Sweeps, e níveis avançados.
+  - `data/data_provider.py`: lógica de download e cache de séries históricas.
+  - `data/fetchers/yf_fetcher.py`: adaptador para Yahoo Finance (yfinance).
+  - `tests/`: suíte de testes unitários cobrindo casos básicos de cada função.
 
-[x] Detecção SMC Básico: BOS, CHoCH, FVG, Order Blocks, Liquidez
+## 2. Ambiente de Desenvolvimento
 
-[x] pytest implementado com mocks e validações
+1. **Clonar repositório**:
+   ```bash
+   git clone git@github.com:0binaryname1/smc_bot.git
+   cd smc_bot
+   ```
+2. **Criar e ativar ambiente**:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # Linux/macOS
+   .\.venv\Scripts\activate   # Windows PowerShell
+   ```
+3. **Instalar dependências**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. **Executar testes**:
+   ```bash
+   pytest tests
+   ```
 
-[x] Integração com Codex verificada
+## 3. Estado Atual
 
-[x] Correção do bug assert is substituído por assert_frame_equal
+- **Funcionalidades básicas** (nível _basic_) implementadas e com testes verdes:
+  - Break of Structure (BOS)
+  - Change of Character (CHOCH)
+  - Fair Value Gaps (FVG)
+  - Order Blocks
+  - Liquidity Zones
+  - Liquidity Sweeps
+- **Data Provider** com cache local via pickle funcionando.
+- **Adapter** para Yahoo Finance (`fetch_yf`) validado.
 
+## 4. Próximos Passos & Tarefas Pendentes
 
+1. **Cobertura de testes**:
+   - Criar testes unitários para padrões _intermediários_ e _avançados_ (Kill Zones, Inducement, Breaker Blocks, Confluence).
+   - Adicionar cenários extremos e casos negativos.
+2. **Implementação de nível intermediário/avançado**:
+   - `detect_killzones`, `detect_inducement`, `detect_breaker_blocks`, `detect_confluence_zones` em `core/patterns.py`.
+3. **Backtesting Intraday**:
+   - Integrar fonte de dados intraday gratuita da B3 (via API pública ou CSV historicamente disponível).
+   - Escrever módulo de _backtest_ que consome `data_provider` e `core/patterns` para validar sinais em dados reais.
+4. **Interface Gráfica**:
+   - Prototipar GUI com Streamlit ou React/Tailwind (conforme planejado).
+5. **Documentação & Deploy**:
+   - Atualizar documentação de uso na raiz (`README.md`).
+   - Configurar CI (GitHub Actions) para rodar testes e lint.
 
----
+## 5. Referências & Recursos
 
-⚠️ O que precisa ser feito
-
-🧪 Ajustes de testes (nível básico)
-
-test_detect_order_blocks()
-
-Corrigir esperados com base no real comportamento (possível confusão entre vela e pullback)
-
-
-test_detect_fvg()
-
-Verificação de gaps realistas com candlesticks anteriores
-
-
-test_detect_liquidity_zones()
-
-Usar np.allclose para comparar floats
-
-Usar tolerance e min_touches
-
-
-test_detect_liquidity_sweep()
-
-Ajustar os índices com base na lógica de body_ratio e confirmação
-
-
-
-⚙️ Refatorar data_provider
-
-Garantir que o mock de fetch_yf e fetch_av não seja comparado por identidade (is) e sim por equals()
-
-
-
----
-
-💡 Orientação ao agente Codex
-
-1. Executar os testes com pytest tests/ a cada commit.
-
-
-2. Corrigir os testes que ainda falham usando pytest -v para detalhes.
-
-
-3. Dar prioridade para deixar o nível básico 100% verde antes de seguir.
-
-
-4. Em seguida, iniciar o nível intermediário (inducement, premium_discount, killzones).
-
-
-5. Qualquer alteração em patterns.py deve manter compatibilidade com os testes.
+- PDF anexados no repositório:
+  - SMART-MONEY-TRADING-GUIDE.pdf
+  - SMC Bible (DexterrFX).pdf
+  - Smart-Money-Concept-trading-strategy-PDF.pdf
+- Artigos ICT, Tom Williams, Steve Mauro (BTMM).
 
 
 
