@@ -34,3 +34,11 @@ build/
 *.sqlite
 *.db
 
+# Exemplo de .gitignore mínimo
+@(
+  "data/data_assets/*.csv"
+) | Out-File -Encoding utf8 .gitignore
+git add .gitignore
+git commit -m "Ignorar CSVs grandes no data_assets"
+
+
