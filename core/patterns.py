@@ -9,193 +9,167 @@ Change of Character (CHOCH), Fair Value Gaps (FVG), Order Blocks, liquidity zone
 import numpy as np
 import pandas as pd
 
-def detect_bos(df: pd.DataFrame) -> bool:
-    if df is None or len(df) < 2:
+import numpy as np
+import pandas as pd
+from typing import List, Dict, Optional, Any
+
+def detect_bos(df: pd.DataFrame, lookback: int = 2) -> bool:
+    """
+    Break of Structure (BOS): price close breaks above last swing high (bull) or below last swing low (bear).
+    lookback defines how many previous bars to consider for swing calculation.
+    """
+    if df is None or len(df) < lookback + 1:
         return False
 
     highs = df['high']
-    lows  = df['low']
-    closes= df['close']
+    lows = df['low']
+    closes = df['close']
 
-    # Identifica últimos swings relevantes
-    last_swing_high = highs.iloc[:-1].iloc[::-1].max()
-    last_swing_low  = lows .iloc[:-1].iloc[::-1].min()
+    # swing high/low from lookback bars ago to previous bar
+    swing_high = highs.iloc[-(lookback+1):-1].max()
+    swing_low = lows.iloc[-(lookback+1):-1].min()
+    last_close = closes.iat[-1]
 
-    # Candle de rompimento deve fechar além do swing
-    if closes.iat[-1] > last_swing_high:
+    if last_close > swing_high:
         return True
-    if closes.iat[-1] < last_swing_low:
+    if last_close < swing_low:
         return True
     return False
 
-def detect_fvg(df: pd.DataFrame) -> list[tuple[float, float]]:
-    gaps = []
+
+def detect_choch(df: pd.DataFrame) -> bool:
+    """
+    Change of Character (CHoCH): detecta ao menos um rompimento de alta
+    e um rompimento de baixa em sequência, em qualquer ordem, em 2+ barras.
+    """
     if df is None or len(df) < 2:
+        return False
+    highs   = df['high']
+    lows    = df['low']
+    closes  = df['close']
+
+    # índices onde houve rompimento de swing high ou swing low
+    high_breaks = [i for i in range(1, len(df))
+                   if closes.iat[i] > highs.iloc[:i].max()]
+    low_breaks  = [i for i in range(1, len(df))
+                   if closes.iat[i] < lows.iloc[:i].min()]
+
+    # precisa ter ao menos um de cada
+    return bool(high_breaks) and bool(low_breaks)
+
+def detect_fvg(df: pd.DataFrame, lookback: int = 3) -> List[Dict[str, Any]]:
+    """
+    Fair Value Gap: for each window of 3, if candle[i].high < candle[i+2].low => bull gap,
+    or candle[i].low > candle[i+2].high => bear gap.
+    Returns list of dicts: side, lower, upper, index
+    """
+    gaps = []
+    if df is None or len(df) < lookback:
         return gaps
-
-    highs = df['high']
-    lows  = df['low']
-
-    for i in range(1, len(df)):
-        prev_h = highs.iat[i-1]
-        prev_l = lows .iat[i-1]
-        curr_h = highs.iat[i]
-        curr_l = lows .iat[i]
-
-        # gap de alta: mínima do atual acima da máxima anterior
-        if curr_l > prev_h:
-            gaps.append((prev_h, curr_l))
-
-        # gap de baixa: máxima do atual abaixo da mínima anterior
-        elif curr_h < prev_l:
-            gaps.append((curr_h, prev_l))
-
+    highs = df['high']; lows = df['low']
+    for i in range(len(df) - 2):
+        if highs.iat[i] < lows.iat[i+2]:
+            gaps.append({
+                'side': 'bull',
+                'lower': highs.iat[i],
+                'upper': lows.iat[i+2],
+                'index': i
+            })
+        elif lows.iat[i] > highs.iat[i+2]:
+            gaps.append({
+                'side': 'bear',
+                'lower': highs.iat[i+2],
+                'upper': lows.iat[i],
+                'index': i
+            })
     return gaps
 
-def detect_order_blocks(df: pd.DataFrame, min_range: float = 0) -> list[dict]:
+
+def detect_order_blocks(df: pd.DataFrame, min_range: float = 0, lookback: int = 50) -> List[Dict[str, Any]]:
     """
-    Retorna lista de dicts: {"index":i, "type":"bullish"/"bearish", "zone":(low,high)}.
+    Detect Order Blocks: last bearish before bullish impulse (bull OB) and vice-versa.
+    Returns list of dicts with side, zone (low,high), index of OB candle.
     """
     obs = []
-    curr_max = df['high'].iat[0]
-    curr_min = df['low'] .iat[0]
-
-    for i in range(1, len(df)):
-        h, l, o, c = df['high'].iat[i], df['low'].iat[i], df['open'].iat[i], df['close'].iat[i]
-        prev_h, prev_l, prev_o, prev_c = df['high'].iat[i-1], df['low'].iat[i-1], df['open'].iat[i-1], df['close'].iat[i-1]
-
-        # bullish BOS confirmado por fechamento
-        if c > curr_max and df['close'].iat[i] > curr_max:
-            # candle anterior devia ser bearish e ter range suficiente
-            if prev_c < prev_o and abs(prev_h - prev_l) >= min_range:
-                obs.append({"index":i-1, "type":"bullish", "zone":(prev_l, prev_h)})
-            curr_max = h
-
-        # bearish BOS
-        if c < curr_min and df['close'].iat[i] < curr_min:
-            if prev_c > prev_o and abs(prev_h - prev_l) >= min_range:
-                obs.append({"index":i-1, "type":"bearish", "zone":(prev_l, prev_h)})
-            curr_min = l
-
-    # remove duplicatas por índice
-    uniq = {o["index"]:o for o in obs}
+    for i in range(1, min(len(df)-1, lookback)):
+        prev = df.iloc[i-1]
+        curr = df.iloc[i]
+        nxt = df.iloc[i+1]
+        # bullish OB: prev bearish and next close > prev.high
+        if prev['close'] < prev['open'] and nxt['close'] > prev['high'] and (prev['high']-prev['low']) >= min_range:
+            obs.append({'side': 'bull', 'zone': (prev['low'], prev['high']), 'index': i-1})
+        # bearish OB: prev bullish and next close < prev.low
+        if prev['close'] > prev['open'] and nxt['close'] < prev['low'] and (prev['high']-prev['low']) >= min_range:
+            obs.append({'side': 'bear', 'zone': (prev['low'], prev['high']), 'index': i-1})
+    # unique by index
+    uniq = {o['index']: o for o in obs}
     return list(uniq.values())
 
-def detect_liquidity_zones(df: pd.DataFrame, min_touches: int = 2, tol: float = 1e-5) -> dict[float,int]:
-    """
-    Retorna dict {price: count} para each level tocado >= min_touches.
-    """
-    counts = {}
-    for price in list(df['high']) + list(df['low']):
-        # junta highs e lows
-        counts[price] = counts.get(price, 0) + 1
 
-    # agrupar por proximidade tol e filtrar
+def detect_liquidity_zones(df: pd.DataFrame, min_touches: int = 2, tol: float = 1e-5) -> Dict[float,int]:
+    counts = {}
+    for price in pd.concat([df['high'], df['low']]):
+        counts[price] = counts.get(price, 0) + 1
     zones = {}
     for price, cnt in counts.items():
-        # encontra key já existente próxima
         found = next((z for z in zones if abs(z - price) <= tol), None)
-        if found:
+        if found is not None:
             zones[found] += cnt
         else:
             zones[price] = cnt
+    return {z: c for z, c in zones.items() if c >= min_touches}
 
-    # só retorna as que tiveram toques suficientes
-    return {z:c for z,c in zones.items() if c >= min_touches}
 
-def detect_liquidity_sweep(df: pd.DataFrame, zones: list[float], body_ratio: float = 0.5, tol: float = 1e-5) -> list[dict]:
+def detect_liquidity_sweep(df: pd.DataFrame, zones: Optional[List[float]] = None,
+                           lookback: int = 10, body_ratio: float = 0.5, tol: float = 1e-5) -> List[Dict[str, Any]]:
     """
-    Para cada zona z, verifica se candle fura e fecha do outro lado com pavio.
-    Retorna list de {"index":i, "level":z, "direction":"up"/"down"}.
+    Liquidity Sweep: last candle sweeps levels (zones) up or down.
+    If zones None, compute on last `lookback` bars.
+    Returns list of {'index', 'level', 'direction'}
     """
+    if df is None or len(df) < 2:
+        return []
+    if zones is None:
+        recent = df.iloc[-lookback:]
+        zones = list(detect_liquidity_zones(recent))
     sweeps = []
-
     highs = df['high']; lows = df['low']; closes = df['close']; opens = df['open']
     for i in range(1, len(df)):
         h, l, o, c = highs.iat[i], lows.iat[i], opens.iat[i], closes.iat[i]
-        rng  = h - l
-        body = abs(c - o)
-        if rng == 0: continue
-        if body / rng > body_ratio:
-            continue  # exige sombra grande
-
+        rng = h - l
+        if rng == 0 or abs(c-o)/rng > body_ratio:
+            continue
         for z in zones:
-            # sweep buy‐side: fura acima z e fecha abaixo
             if h > z + tol and c < z - tol:
-                sweeps.append({"index":i, "level":z, "direction":"up"})
-            # sweep sell‐side: fura abaixo z e fecha acima
+                sweeps.append({'index': i, 'level': z, 'direction': 'up'})
             if l < z - tol and c > z + tol:
-                sweeps.append({"index":i, "level":z, "direction":"down"})
-
-    # remover duplicatas por (i,z)
+                sweeps.append({'index': i, 'level': z, 'direction': 'down'})
+    # unique
     seen = set()
     uniq = []
     for s in sweeps:
-        key = (s["index"], s["level"])
+        key = (s['index'], s['level'])
         if key not in seen:
             seen.add(key)
             uniq.append(s)
     return uniq
 
 # ------------------- NÍVEL INTERMEDIÁRIO -------------------
+def detect_inducement(df: pd.DataFrame, zones: List[float]) -> List[Dict[str, Any]]:
+    """Stub para Inducement."""
+    raise NotImplementedError
 
-def detect_choch(df: pd.DataFrame) -> bool:
-    if df is None or len(df) < 3:
-        return False
+def compute_equilibrium_zone(df: pd.DataFrame) -> Dict[str, tuple]:
+    """Stub para Premium/Discount Zone."""
+    raise NotImplementedError
 
-    highs = df['high']
-    lows  = df['low']
-    closes= df['close']
+def detect_killzones(df: pd.DataFrame) -> List[pd.Timestamp]:
+    """Stub para Kill Zones."""
+    raise NotImplementedError
 
-    # precisa de pelo menos 2 swings na direção original antes do CHOCH
-    # ex.: dois higher highs antes de um lower low, ou dois lower lows antes de um higher high
-    # aqui simplificamos contando pivôs:
-    highs_idx = [i for i in range(1, len(df)) if closes.iat[i] > highs.iloc[:i].max()]
-    lows_idx  = [i for i in range(1, len(df)) if closes.iat[i] < lows .iloc[:i].min()]
-    up = bool(highs_idx)   # já viu BOS up
-    dn = bool(lows_idx)    # já viu BOS down
-    return up and dn
-
-def detect_inducement(df: pd.DataFrame, zones: list[float]) -> list[dict]:
-    """
-    Inducement = sweep falso seguido de candle que volta para o mesmo lado de z.
-    Retorna list de {"sweep":sweep, "confirm_idx":i+1}.
-    """
-    sweeps = detect_liquidity_sweep(df, zones)
-    inducements = []
-
-    for sw in sweeps:
-        idx, z, dir_ = sw["index"], sw["level"], sw["direction"]
-        nxt = idx + 1
-        if nxt < len(df):
-            c = df['close'].iat[nxt]
-            # se sweep up mas fechou acima de z novamente => indução de compras
-            if dir_ == "up" and c > z:
-                inducements.append({"sweep":sw, "confirm_idx":nxt})
-            # se sweep down mas fechou abaixo de z => indução de vendas
-            if dir_ == "down" and c < z:
-                inducements.append({"sweep":sw, "confirm_idx":nxt})
-
-    return inducements
-
-def detect_premium_discount(df):
-    """Premium/Discount: zona acima/abaixo de 50% do último swing."""
-    swing_high = df["high"].max()
-    swing_low  = df["low"].min()
-    midpoint   = (swing_high + swing_low) / 2
-    return {"premium": (midpoint, swing_high), "discount": (swing_low, midpoint)}
-
-def detect_killzones(df, timestamp_column):
-    """Kill zones de volatilidade baseada em horário (ex.: abertura NY/LON)."""
-    # espera coluna datetime index ou coluna de timestamps
-    tz = df.index.tz or None
-    kills = []
-    for ts in df.index:
-        hour = ts.hour
-        # exemplo: 8-10h (Londres) e 13-15h (NY)
-        if (8 <= hour < 10) or (13 <= hour < 15):
-            kills.append(ts)
-    return kills
+def detect_mss(df: pd.DataFrame) -> bool:
+    """Stub para Market Structure Shift."""
+    raise NotImplementedError
 
 # ------------------- EXECUÇÃO E CONTEXTO -------------------
 

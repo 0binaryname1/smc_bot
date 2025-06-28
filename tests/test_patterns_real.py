@@ -17,31 +17,28 @@ if not PARQUETS:
 
 # Funções + tipo de retorno esperado
 PATTERNS = [
-    ("detect_bos", bool),
-    ("detect_choch", bool),
-    ("detect_fvg", list),
-    ("detect_order_blocks", list),
-    ("detect_liquidity_zones", dict),
+    ('detect_bos', bool),
+    ('detect_choch', bool),
+    ('detect_fvg', list),
+    ('detect_order_blocks', list),
+    ('detect_liquidity_zones', dict),
 ]
 
-def random_slice(df: pd.DataFrame, minutes: int = 720, seed: int = 42) -> pd.DataFrame:
+def random_slice(df, minutes=720, seed=42):
     rnd = random.Random(seed)
     if len(df) <= minutes:
         return df.copy()
-    start = rnd.randint(0, len(df) - minutes)
-    return df.iloc[start:start + minutes].reset_index(drop=True)
+    start = rnd.randint(0, len(df)-minutes)
+    return df.iloc[start:start+minutes].reset_index(drop=True)
 
-@pytest.fixture(scope="module", params=PARQUETS)
-def sample_df(request) -> pd.DataFrame:
+@pytest.fixture(scope='module', params=PARQUETS)
+def sample_df(request):
     df = pd.read_parquet(request.param)
-    seed = abs(hash(request.param)) % (2**32)
+    seed = abs(hash(str(request.param))) % (2**32)
     return random_slice(df, minutes=720, seed=seed)
 
-@pytest.mark.parametrize("func_name, expected_type", PATTERNS)
-def test_pattern_runs_and_returns_correct_type(
-    sample_df, func_name, expected_type
-):
+@pytest.mark.parametrize('func_name,expected', PATTERNS)
+def test_pattern_real(sample_df, func_name, expected):
     func = getattr(patterns, func_name)
     result = func(sample_df)
-    assert isinstance(result, expected_type)
-
+    assert isinstance(result, expected)
