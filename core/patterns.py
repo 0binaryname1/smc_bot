@@ -191,32 +191,76 @@ def compute_equilibrium_zone(df: pd.DataFrame) -> Dict[str, tuple]:
     return {'premium': (midpoint, swing_high), 'discount': (swing_low, midpoint)}
 
 
-def detect_killzones(df: pd.DataFrame, sessions: List[tuple] = [(8,10),(13,15)]) -> List[pd.Timestamp]:
-    """
-    Kill Zones: identifica timestamps cuja hora está em faixas de volatilidade.
-    - sessions: lista de tuplas (start_hour, end_hour) em UTC.
-    """
+def detect_killzones(df: pd.DataFrame,
+                     sessions: List[tuple] = [(8,10), (13,15)]
+                    ) -> List[pd.Timestamp]:
+    
+    #Kill Zones: retorna timestamps cujo hour está nas faixas de volatilidade UTC.
+    #sessions: lista de (start_hour, end_hour).
+    
     if not hasattr(df, 'index') or not pd.api.types.is_datetime64_any_dtype(df.index):
-        raise ValueError("DataFrame deve ter índice datetime para killzones.")
+        raise ValueError("DataFrame deve ter índice datetime para killzones")
     kills: List[pd.Timestamp] = []
     for ts in df.index:
-        hour = ts.hour
         for start, end in sessions:
-            if start <= hour < end:
+            if start <= ts.hour < end:
                 kills.append(ts)
                 break
     return kills
-# ------------------- EXECUÇÃO E CONTEXTO -------------------
 
-def is_continuation_valid(df):
-    """Validação de continuação baseada em BOS + pullback em discount."""
-    if not detect_bos(df):
-        return False
-    pdz = detect_premium_discount(df)["discount"]
-    last_close = df["close"].iloc[-1]
-    return pdz[0] <= last_close <= pdz[1]
+# ------------------- NÍVEL AVANÇADO -------------------
 
-def is_reversal_valid(df):
-    """Validação de reversão baseada em CHoCH + inducement."""
-    return detect_choch(df) and bool(detect_inducement(df))
+def detect_mss(df: pd.DataFrame) -> bool:
+    """
+    Market Structure Shift (MSS): identifica se há pelo menos um BOS e um CHOCH no histórico.
+    Retorna True se ambos ocorreram em df.
+    """
+    return detect_bos(df) and detect_choch(df)
 
+
+def detect_breaker_blocks(df: pd.DataFrame, min_range: float = 0) -> List[Dict[str, Any]]:
+    """
+    Breaker Blocks: zonas que resultam de falso rompimento seguido de reversão rápida.
+    - df: DataFrame com candles ['open','high','low','close']
+    - min_range: range mínimo de candle para considerar.
+    Retorna lista de dicts: {'index': i, 'type':'bullish'/'bearish', 'zone':(low,high)}
+    """
+    blocks: List[Dict[str, Any]] = []
+    for i in range(1, len(df)-1):
+        prev, curr, nxt = df.iloc[i-1], df.iloc[i], df.iloc[i+1]
+        # bearish breaker: curr rompe abaixo do prev.low e próximo fecha acima de curr.high
+        if curr['low'] < prev['low'] and nxt['close'] > curr['high'] and (curr['high']-curr['low']) >= min_range:
+            blocks.append({'index': i, 'type': 'bearish', 'zone': (curr['low'], curr['high'])})
+        # bullish breaker: curr rompe acima do prev.high e próximo fecha abaixo de curr.low
+        if curr['high'] > prev['high'] and nxt['close'] < curr['low'] and (curr['high']-curr['low']) >= min_range:
+            blocks.append({'index': i, 'type': 'bullish', 'zone': (curr['low'], curr['high'])})
+    # remover duplicatas por índice
+    seen = set()
+    uniq = []
+    for b in blocks:
+        if b['index'] not in seen:
+            seen.add(b['index'])
+            uniq.append(b)
+    return uniq
+
+
+def detect_confluence_zones(df: pd.DataFrame, tolerance: float = 1e-5) -> List[float]:
+    """
+    Confluence Zones: preços onde ocorrem múltiplos padrões simultaneamente.
+    - Integrar níveis de Order Blocks, Fair Value Gaps e Liquidity Zones.
+    - tolerance: proximidade para agrupar valores.
+    Retorna lista de níveis de confluência.
+    """
+    # coletar níveis de cada padrão
+    ob_levels = [lvl for ob in detect_order_blocks(df) for lvl in ob['zone']]
+    fvg_levels = [edge for gap in detect_fvg(df) for edge in (gap['lower'], gap['upper'])]
+    liq_levels = list(detect_liquidity_zones(df).keys())
+
+    all_levels = ob_levels + fvg_levels + liq_levels
+    confluence = []
+    for lvl in all_levels:
+        # agrupar níveis próximos
+        group = [x for x in all_levels if abs(x - lvl) <= tolerance]
+        if len(group) >= 2 and not any(abs(c - lvl) <= tolerance for c in confluence):
+            confluence.append(lvl)
+    return confluence
