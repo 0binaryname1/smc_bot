@@ -155,22 +155,57 @@ def detect_liquidity_sweep(df: pd.DataFrame, zones: Optional[List[float]] = None
     return uniq
 
 # ------------------- NÍVEL INTERMEDIÁRIO -------------------
+
 def detect_inducement(df: pd.DataFrame, zones: List[float]) -> List[Dict[str, Any]]:
-    """Stub para Inducement."""
-    raise NotImplementedError
+    """
+    Inducement: identifica um sweep seguido de candle de confirmação no mesmo lado.
+    - df: DataFrame com colunas ['open','high','low','close']
+    - zones: lista de preços de níveis de liquidez (output de detect_liquidity_zones)
+    Retorna lista de dicts: {'sweep': {...}, 'confirm_idx': idx_confirm}
+    """
+    sweeps = detect_liquidity_sweep(df, zones)
+    inducements: List[Dict[str, Any]] = []
+    for sw in sweeps:
+        idx = sw['index']
+        z = sw['level']
+        dir_ = sw['direction']
+        nxt = idx + 1
+        if nxt < len(df):
+            c = df['close'].iat[nxt]
+            if dir_ == 'up' and c > z:
+                inducements.append({'sweep': sw, 'confirm_idx': nxt})
+            if dir_ == 'down' and c < z:
+                inducements.append({'sweep': sw, 'confirm_idx': nxt})
+    return inducements
+
 
 def compute_equilibrium_zone(df: pd.DataFrame) -> Dict[str, tuple]:
-    """Stub para Premium/Discount Zone."""
-    raise NotImplementedError
+    """
+    Premium/Discount Zone: calcula swing_high, swing_low e midpoint.
+    Retorna dict:
+      {'premium': (midpoint, swing_high), 'discount': (swing_low, midpoint)}
+    """
+    swing_high = df['high'].max()
+    swing_low = df['low'].min()
+    midpoint = (swing_high + swing_low) / 2
+    return {'premium': (midpoint, swing_high), 'discount': (swing_low, midpoint)}
 
-def detect_killzones(df: pd.DataFrame) -> List[pd.Timestamp]:
-    """Stub para Kill Zones."""
-    raise NotImplementedError
 
-def detect_mss(df: pd.DataFrame) -> bool:
-    """Stub para Market Structure Shift."""
-    raise NotImplementedError
-
+def detect_killzones(df: pd.DataFrame, sessions: List[tuple] = [(8,10),(13,15)]) -> List[pd.Timestamp]:
+    """
+    Kill Zones: identifica timestamps cuja hora está em faixas de volatilidade.
+    - sessions: lista de tuplas (start_hour, end_hour) em UTC.
+    """
+    if not hasattr(df, 'index') or not pd.api.types.is_datetime64_any_dtype(df.index):
+        raise ValueError("DataFrame deve ter índice datetime para killzones.")
+    kills: List[pd.Timestamp] = []
+    for ts in df.index:
+        hour = ts.hour
+        for start, end in sessions:
+            if start <= hour < end:
+                kills.append(ts)
+                break
+    return kills
 # ------------------- EXECUÇÃO E CONTEXTO -------------------
 
 def is_continuation_valid(df):
