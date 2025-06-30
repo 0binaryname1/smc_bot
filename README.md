@@ -1,144 +1,118 @@
 # smc\_bot
 
-**Biblioteca Python para detecção de Smart Money Concepts (SMC) em dados de mercado e backtesting.**
+**Biblioteca Python para operações financeiras autônomas baseadas em Smart Money Concepts (SMC)**
 
 ---
 
-## Sumário
+## 🧩 Visão Geral
 
-* [Visão Geral](#visão-geral)
-* [Estrutura do Projeto](#estrutura-do-projeto)
-* [Instalação](#instalação)
-* [Uso](#uso)
-* [Configuração](#configuração)
-* [Testes](#testes)
-* [Status de Conclusão](#status-de-conclusão)
-* [Próximos Passos](#próximos-passos)
+smc\_bot é uma ferramenta modular que detecta padrões de Smart Money Concepts (SMC) em dados OHLC (Open, High, Low, Close) históricos, permite backtests locais via interface Tkinter e inclui suíte de testes automatizados.
 
----
+**Objetivos principais:**
 
-## Visão Geral
-
-O **smc\_bot** é uma ferramenta para automatizar a análise de padrões de Smart Money Concepts (SMC) — como Break of Structure (BOS), Change of Character (CHOCH), Fair Value Gaps (FVG) e muito mais — e executar simulações (backtesting) de estratégias baseadas nesses padrões. Ideal para traders e pesquisadores que desejam validar hipóteses de SMC de forma programática.
+* Oferecer detectores de padrões SMC que funcionem apenas com OHLC, sem dependência de APIs externas.
+* Backtest local on‑demand via GUI Tkinter, com seleção de arquivo CSV/Parquet e níveis de análise configuráveis.
+* Logs em tempo real e relatório de resultados de performance dos detectores.
+* Estrutura de código e testes que facilite continuidade em novos chats ou por outros desenvolvedores.
 
 ---
 
-## Estrutura do Projeto
+## 📂 Estrutura do Projeto
 
 ```
 smc_bot/
-├── backtest/               # Engine de backtest e simulação
-│   └── engine.py           # Função run_backtests
-├── core/                   # Módulos centrais de detecção de padrões
-│   ├── patterns.py         # Funções detect_bos, detect_choch, detect_fvg etc.
-│   └── config.py           # Parâmetros globais para detectores
-├── data/                   # Acesso e preparação de dados históricos
-│   ├── data_provider.py    # Cache local e interface de dados
-│   ├── fetchers/           # Adaptadores para Yahoo/AlphaVantage
-│   └── data_assets/        # Scripts de conversão CSV → Parquet
-├── gui/                    # (Protótipo) Interface gráfica
-├── tests/                  # Testes automatizados com pytest
+├── core/                  # Detectores de padrões SMC (OHLC-only)
+│   ├── patterns.py        # Funções básicas, intermediárias e avançadas sem volume
+│   └── config.py          # Parâmetros globais e lista DETECTORS_BY_LEVEL
+├── backtest/
+│   └── engine.py          # run_backtest_df: executa detectores sobre DataFrame
+├── app_tk.py              # GUI Tkinter: abas Análise, Log, Resultados
+├── tests/                 # Pytest: cobertura unitária de todos os detectores
 │   ├── test_patterns_basic.py
-│   ├── test_patterns_real.py
 │   ├── test_patterns_intermediate.py
 │   └── test_patterns_advanced.py
-├── main.py                 # Script de entrada principal
-├── config.py               # Mapeamento de ativos e configurações padrão
-├── README.md               # Documentação do projeto
-├── requirements.txt        # Dependências Python
-└── pyproject.toml          # Metadados e empacotamento
+├── config.py              # Configurações de ativos/timeframes padrões
+├── .gitignore             # Ignora data assets, logs, ambientes
+└── README.md              # Este arquivo
 ```
+
+**Não mantidos (versões offline/internas):** módulos de fetchers (Yahoo, AlphaVantage), GUI Streamlit, data\_assets versionadas. Esses padrões são carregados pelo usuário via seleção de arquivo local.
 
 ---
 
-## Instalação
+## ⚙️ Instalação e Preparação
 
-Crie e ative um ambiente virtual (recomendado):
-
-```bash
-python -m venv .venv
-source .venv/bin/activate      # Linux/macOS
-.\.venv\Scripts\activate     # Windows PowerShell
-```
-
-Instale dependências:
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Uso
-
-1. **Preparar dados** (CSV M1 → Parquet):
+1. Clone o repositório:
 
    ```bash
-   python data/data_assets/prepare_data.py
+   git clone https://github.com/0binaryname1/smc_bot.git
+   cd smc_bot
    ```
-2. **Executar backtest** para ativos definidos:
+2. Crie e ative ambiente virtual:
 
    ```bash
-   python main.py --timeframe 15m --start 2023-01-01
+   python -m venv .venv
+   source .venv/bin/activate   # Linux/macOS
+   .\.venv\Scripts\activate  # Windows PowerShell
    ```
-3. **Importar detectores** em scripts:
+3. Instale dependências:
 
-   ```python
-   from core.patterns import detect_bos, detect_fvg
-   df = ...  # Candles
-   print(detect_bos(df), detect_fvg(df))
+   ```bash
+   pip install -r requirements.txt
    ```
+
+> **Observação:** `requirements.txt` inclui apenas pacotes necessários para OHLC-only (pandas, numpy, pytest, tkinter está no stdlib).
 
 ---
 
-## Configuração
+## 🚀 Uso da Interface Tkinter
 
-Ajuste `config.py`:
+Para iniciar a GUI:
 
-* `ASSETS`: dicionário nome→símbolo.
-* `TIMEFRAME`, `START_DATE`: parâmetros padrão.
+```bash
+python app_tk.py
+```
+
+### Abas Principais
+
+1. **Análise**
+
+   * Botão para importar CSV ou Parquet de dados OHLC.
+   * Checkboxes para escolher níveis de detectores: Básico, Intermediário, Avançado.
+   * Calendário dinâmico (em desenvolvimento) para intervalo de datas.
+   * Botão **Rodar Backtest** inicia processamento em thread separada.
+
+2. **Log de Análise**
+
+   * Barra de progresso verde indicando quantos detectores foram executados.
+   * Área de texto que exibe passo a passo: leitura de arquivo, execução de cada detector, capturas de erro.
+
+3. **Resultados**
+
+   * Exibe métricas por detector: número de sinais, taxa de acerto (Win Rate), profit factor, expectancy.
+   * Futuramente: gráficos de capital, tabela de trades.
 
 ---
 
-## Testes
+## 🔧 Execução de Testes
 
-Execute todos os testes:
+Para validar a suíte de detectores:
 
 ```bash
 pytest -q
 ```
 
-Testes por nível:
-
-```bash
-pytest tests/test_patterns_basic.py -q
-pytest tests/test_patterns_intermediate.py -q
-pytest tests/test_patterns_advanced.py -q
-```
+Todos os testes unitários em `tests/` devem passar (60+ testes cobrindo todos os padrões).
 
 ---
 
-## Status de Conclusão
+## 📈 Próximos Passos
 
-* **Nível Básico**: 100% concluído (6/6 padrões).
-* **Nível Intermediário**: 100% concluído (3/3 padrões).
-* **Nível Avançado**: 20% concluído (3/15 detectores).
-* **Cobertura de Testes**: 64 testes automatizados passando.
-* **Documentação**: README.md atualizado com descrição completa de arquivos e status.
-* **Conclusão Global**: \~40% do roadmap global concluído.
+* **Calendar Picker:** concluir seleção de intervalo de datas na GUI.
+* **Resultados Avançados:** implementar cálculo de métricas financeiras (Profit Factor, Drawdown, Sharpe).
+* **Módulo de Volume (opcional):** criar `core/patterns_volume.py` para dependências de volume/OFI.
+* **Relatório Gráfico:** adicionar geração de gráficos ao GUI ou exportação CSV/PPT.
+* **Persistência de Backtests:** salvar logs e resultados em arquivos para comparativos históricos.
 
----
-
-## Próximos Passos
-
-* **Implementar detectores avançados restantes**: MSS refinado, Mitigation Blocks, Liquidity Voids, Stop Hunts, FVG múltiplos, etc.
-* **Integração no Backtest**: incluir sinais avançados e validar resultados end-to-end.
-* **CI/CD**: configurar GitHub Actions para testes e lint.
-* **Docker**: criar contêiner para backtesting padronizado.
-* **Interface Gráfica**: evoluir protótipo em `gui/`.
-
-> *Desenvolvido com base em conceitos de Smart Money Concepts e práticas de backtesting em Python.*
-
-```
-```
+**OBS:** Este README serve como passagem de serviço; ao mudar de chat ou máquina, siga estes passos para retomar o projeto imediatamente.
 
