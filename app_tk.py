@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
-
+from backtest.engine import run_backtest_df
 from core.config import DETECTORS_BY_LEVEL
 
 print("=== Iniciando app_tk.py ===")
@@ -82,15 +82,14 @@ class SMCBacktestApp(tk.Tk):
         threading.Thread(target=self._threaded_backtest, daemon=True).start()
 
     def _threaded_backtest(self):
-        results = {}
-        for i, det in enumerate(self.detectors, start=1):
-            res = det(self.df)
-            cnt = 1 if isinstance(res, bool) else len(res)
-            results[det.__name__] = cnt
-            # agenda update da barra
-            self.after(0, lambda v=i: self.progress.config(value=v))
 
-        self.after(0, self._finish_backtest, results)
+    # montamos a lista de detectores a partir do config
+    detectors = []
+    for lvl, var in self.level_vars.items():
+        if var.get():
+            detectors += DETECTORS_BY_LEVEL[lvl]
+
+    results = run_backtest_df(self.df, detectors, progress_callback=lambda v: self.after(0, lambda: self.progress.config(value=v * len(detectors)))
 
     def _finish_backtest(self, results):
         for name, cnt in results.items():
