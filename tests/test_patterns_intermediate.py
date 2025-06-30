@@ -31,7 +31,7 @@ def df_premium():
 
 @pytest.fixture
 def df_killzones():
-    rng = pd.date_range('2025-06-28 07:00', periods=10, freq='H', tz='UTC')
+    rng = pd.date_range('2025-06-28 07:00', periods=10, freq='h', tz='UTC')
     df = pd.DataFrame({'open': range(10), 'high': range(1,11), 'low': range(1,11), 'close': range(1,11)}, index=rng)
     return df
 

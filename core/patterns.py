@@ -6,8 +6,6 @@ This module provides basic SMC pattern detection such as Break of Structure (BOS
 Change of Character (CHOCH), Fair Value Gaps (FVG), Order Blocks, liquidity zones, and liquidity sweeps.
 """
 
-import numpy as np
-import pandas as pd
 
 import numpy as np
 import pandas as pd
@@ -264,3 +262,80 @@ def detect_confluence_zones(df: pd.DataFrame, tolerance: float = 1e-5) -> List[f
         if len(group) >= 2 and not any(abs(c - lvl) <= tolerance for c in confluence):
             confluence.append(lvl)
     return confluence
+
+def detect_mitigation_blocks(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """
+    Mitigation Blocks: identifica zonas onde houve "failure swing" seguido de retorno.
+    Critério: candle i-1 fecha além de candle i-2 (break), e candle i fecha dentro do range de i-2.
+    Retorna lista de dicts: {'index': i, 'type':'bullish'/'bearish', 'zone':(low,high)}
+    """
+    blocks = []
+    for i in range(2, len(df)):
+        prev2 = df.iloc[i-2]
+        prev1 = df.iloc[i-1]
+        curr  = df.iloc[i]
+        # bullish mitigation: prev1.high > prev2.high e curr.close <= prev2.high
+        if prev1['high'] > prev2['high'] and curr['close'] <= prev2['high']:
+            blocks.append({'index': i, 'type': 'bullish', 'zone': (prev2['low'], prev2['high'])})
+        # bearish mitigation: prev1.low < prev2.low e curr.close >= prev2.low
+        if prev1['low'] < prev2['low'] and curr['close'] >= prev2['low']:
+            blocks.append({'index': i, 'type': 'bearish', 'zone': (prev2['low'], prev2['high'])})
+    return blocks
+
+
+def detect_liquidity_voids(df: pd.DataFrame, tol: float = 0.0) -> List[Dict[str, Any]]:
+    """
+    Liquidity Voids: gaps entre candles sem overlap de preço.
+    gap up: curr.low > prev.high + tol
+    gap down: curr.high < prev.low - tol
+    Retorna lista de {'index', 'type', 'zone'}
+    """
+    voids = []
+    for i in range(1, len(df)):
+        prev = df.iloc[i-1]
+        curr = df.iloc[i]
+        # gap up
+        if curr['low'] > prev['high'] + tol:
+            voids.append({'index': i, 'type': 'bullish', 'zone': (prev['high'], curr['low'])})
+        # gap down
+        if curr['high'] < prev['low'] - tol:
+            voids.append({'index': i, 'type': 'bearish', 'zone': (curr['high'], prev['low'])})
+    return voids
+
+
+def detect_stop_hunts(df: pd.DataFrame, wick_ratio: float = 0.5) -> List[int]:
+    hunts = []
+    for i in range(1, len(df)):
+        o, h, l, c = df.iloc[i][['open','high','low','close']]
+        rng = h - l
+        if rng == 0: continue
+        upper_wick = h - max(o, c)
+        lower_wick = min(o, c) - l
+        if lower_wick / rng > wick_ratio and c <= o: hunts.append(i)
+        if upper_wick / rng > wick_ratio and c >= o: hunts.append(i)
+    return hunts
+
+def detect_multi_fvg(df: pd.DataFrame, min_gaps: int = 2) -> List[tuple]:
+    """
+    Fair Value Gaps Múltiplos: detecta quando existem pelo menos `min_gaps` gaps.
+    Usa detect_fvg internamente.
+    Retorna lista de gaps (low, high).
+    """
+    gaps = detect_fvg(df)
+    return gaps if len(gaps) >= min_gaps else []
+
+def detect_order_flow_imbalance(df: pd.DataFrame, factor: float = 2.0) -> List[int]:
+    """
+    Order Flow Imbalance: identifica candles cujo range > factor * média de ranges.
+    (Proxy usando OHLC; para maior precisão, incorpore volume ou dados de livro de ordens.)
+    Retorna lista de índices.
+    """
+    ranges = df['high'] - df['low']
+    max_range = ranges.max()
+    threshold = factor * max_range
+
+    imbalances: List[int] = []
+    for i, r in enumerate(ranges):
+        if r > threshold:
+            imbalances.append(i)
+    return imbalances

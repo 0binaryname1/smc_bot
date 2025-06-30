@@ -7,3 +7,6 @@ ASSETS = {
 
 TIMEFRAME = "15m"                     # ou "1d" para começar
 START_DATE = "2024-01-01"
+
+ENABLE_VOLUME = False  # ou use variável de ambiente
+
